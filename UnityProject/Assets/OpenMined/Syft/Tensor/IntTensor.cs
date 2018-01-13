@@ -203,6 +203,20 @@ namespace OpenMined.Syft.Tensor
             return result;
         }
 
+        public int Trace()
+        {
+            if ((shape.Length != 2) || (shape[0] != shape[1]))
+                throw new InvalidOperationException("Trace is defined on square 2d matrices only.");
+
+            if (dataOnGpu)
+            {
+                throw new NotImplementedException();
+            }
+
+            var stride = strides[0] + strides[1];
+            return Enumerable.Range(0, shape.Min()).AsParallel().Select(i => this[i * stride]).Sum();
+        }
+
         public IntTensor View(int[] new_shape, bool inline = true, FloatTensor result = null)
         {
             if (!IsContiguous()) {
@@ -344,6 +358,12 @@ namespace OpenMined.Syft.Tensor
                         return string.Join(" ", Data);
 
                     }
+                }
+
+                case "trace":
+                {
+                    var result = this.Trace();
+                    return result.ToString();
                 }
 
             }
