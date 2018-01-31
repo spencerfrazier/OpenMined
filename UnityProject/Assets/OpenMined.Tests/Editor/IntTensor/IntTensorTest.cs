@@ -345,6 +345,330 @@ namespace OpenMined.Tests.Editor.IntTensorTests
             }
         }
 
+
+        [Test]
+        public void SplitSameBySize()
+        {
+            float[] data = {1, 2, 3, 4, 5, 6, 7, 8};
+            int[] shape = {2, 4};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+
+            var splits = tensor.Split(1);
+            Assert.AreEqual(2, splits.Length);
+
+            for(int i = 0; i < splits.Length; i++)
+            {
+                Assert.AreEqual(2, splits[i].Shape.Length);
+            }
+
+            int[] expectedShape = {1, 4};
+
+            for(int i = 0; i < splits.Length; i++){
+                for(int j = 0; j < splits[0].Shape.Length; j++)
+                {
+                    Assert.AreEqual(expectedShape[j], splits[i].Shape[j]);
+                }
+            }
+
+            float[] splitData1 = {1, 2, 3, 4};
+            float[] splitData2 = {5, 6, 7, 8};
+
+            var expectedTensor1 = ctrl.intTensorFactory.Create(_data: splitData1, _shape: expectedShape);
+            var expectedTensor2 =   ctrl.intTensorFactory.Create(_data: splitData2, _shape: expectedShape);
+
+            for(int i = 0; i < expectedShape[0]; i++){
+                for(int j = 0; j < expectedShape[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor1[i, j], splits[0][i, j]);
+                    Assert.AreEqual(expectedTensor2[i, j], splits[1][i, j]);
+                }
+
+            }
+
+            var splits2 = tensor.Split(2, dim:1);
+            Assert.AreEqual(2, splits2.Length);
+
+            for(int i = 0; i < splits2.Length; i++)
+            {
+                Assert.AreEqual(2, splits2[i].Shape.Length);
+            }
+
+            int[] expectedShape2 = {2, 2};
+
+            for(int i = 0; i < splits2.Length; i++)
+            {
+                for(int j = 0; j < splits2[0].Shape.Length; j++)
+                {
+                    Assert.AreEqual(expectedShape2[j], splits2[i].Shape[j]);
+                }
+            }
+
+            float[] splitData3 = {1, 2, 5, 6};
+            float[] splitData4 = {3, 4, 7, 8};
+            
+            var expectedTensor3 = ctrl.intTensorFactory.Create(_data: splitData3, _shape: expectedShape2);
+            var expectedTensor4 = ctrl.intTensorFactory.Create(_data: splitData4, _shape: expectedShape2);
+
+            for(int i = 0; i < expectedShape2[0]; i++){
+                for(int j = 0; j < expectedShape2[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor3[i, j], splits2[0][i, j]);
+                    Assert.AreEqual(expectedTensor4[i, j], splits2[1][i, j]);
+                }
+            }
+        }
+
+        [Test]
+        public void SplitDiffBySize()
+        {
+            float[] data = {1, 2, 3, 4, 5, 6, 7, 8};
+            int[] shape = {2, 4};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+            
+            var splits = tensor.Split(3, 1);
+            Assert.AreEqual(2, splits.Length);
+
+            for(int i = 0; i < splits.Length; i++)
+            {
+                Assert.AreEqual(2, splits[i].Shape.Length);
+            }
+
+            int[] expectedShape1 = {2, 3};
+            int[] expectedShape2 = {2, 1};
+
+            
+            for(int j = 0; j < splits[0].Shape.Length; j++)
+            {
+                Assert.AreEqual(expectedShape1[j], splits[0].Shape[j]);
+                Assert.AreEqual(expectedShape2[j], splits[1].Shape[j]);
+            }
+            
+            float[] splitData1 = {1, 2, 3, 5, 6, 7};
+            float[] splitData2 = {4, 8};
+
+            var expectedTensor1 = ctrl.intTensorFactory.Create(_data: splitData1, _shape: expectedShape1);
+            var expectedTensor2 =  ctrl.intTensorFactory.Create(_data: splitData2, _shape: expectedShape2);
+
+            for(int i = 0; i < expectedShape1[0]; i++){
+                for(int j = 0; j < expectedShape1[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor1[i, j], splits[0][i, j]);
+                }
+            }
+
+            for(int i = 0; i < expectedShape2[0]; i++){
+                for(int j = 0; j < expectedShape2[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor2[i, j], splits[1][i, j]);
+                }
+            }
+        }
+
+        [Test]
+        public void SplitSameBySections()
+        {
+            float[] data = {1, 2, 3, 4, 5, 6, 7, 8};
+            int[] shape = {2, 4};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+
+            int[] sections = {1,1};
+            var splits = tensor.Split(sections);
+            Assert.AreEqual(2, splits.Length);
+
+            for(int i = 0; i < splits.Length; i++)
+            {
+                Assert.AreEqual(2, splits[i].Shape.Length);
+            }
+
+            int[] expectedShape = {1, 4};
+
+            for(int i = 0; i < splits.Length; i++){
+                for(int j = 0; j < splits[0].Shape.Length; j++)
+                {
+                    Assert.AreEqual(expectedShape[j], splits[i].Shape[j]);
+                }
+            }
+
+            float[] splitData1 = {1, 2, 3, 4};
+            float[] splitData2 = {5, 6, 7, 8};
+
+            var expectedTensor1 = ctrl.intTensorFactory.Create(_data: splitData1, _shape: expectedShape);
+            var expectedTensor2 =   ctrl.intTensorFactory.Create(_data: splitData2, _shape: expectedShape);
+
+            for(int i = 0; i < expectedShape[0]; i++){
+                for(int j = 0; j < expectedShape[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor1[i, j], splits[0][i, j]);
+                    Assert.AreEqual(expectedTensor2[i, j], splits[1][i, j]);
+                }
+
+            }
+
+            int[] sections2 = {2,2};
+            var splits2 = tensor.Split(sections2, dim:1);
+            Assert.AreEqual(2, splits2.Length);
+
+            for(int i = 0; i < splits2.Length; i++)
+            {
+                Assert.AreEqual(2, splits2[i].Shape.Length);
+            }
+
+            int[] expectedShape2 = {2, 2};
+
+            for(int i = 0; i < splits2.Length; i++)
+            {
+                for(int j = 0; j < splits2[0].Shape.Length; j++)
+                {
+                    Assert.AreEqual(expectedShape2[j], splits2[i].Shape[j]);
+                }
+            }
+
+            float[] splitData3 = {1, 2, 5, 6};
+            float[] splitData4 = {3, 4, 7, 8};
+            
+            var expectedTensor3 = ctrl.intTensorFactory.Create(_data: splitData3, _shape: expectedShape2);
+            var expectedTensor4 = ctrl.intTensorFactory.Create(_data: splitData4, _shape: expectedShape2);
+
+            for(int i = 0; i < expectedShape2[0]; i++){
+                for(int j = 0; j < expectedShape2[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor3[i, j], splits2[0][i, j]);
+                    Assert.AreEqual(expectedTensor4[i, j], splits2[1][i, j]);
+                }
+            }
+
+        }
+
+        [Test]
+        public void SplitDiffBySections()
+        {
+            float[] data = {1, 2, 3, 4, 5, 6, 7, 8};
+            int[] shape = {2, 4};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+
+            int[] sections = {3, 1};
+            var splits = tensor.Split(sections, 1);
+            Assert.AreEqual(2, splits.Length);
+
+            for(int i = 0; i < splits.Length; i++)
+            {
+                Assert.AreEqual(2, splits[i].Shape.Length);
+            }
+
+            int[] expectedShape1 = {2, 3};
+            int[] expectedShape2 = {2, 1};
+
+            
+            for(int i = 0; i < splits[0].Shape.Length; i++)
+            {
+                Assert.AreEqual(expectedShape1[i], splits[0].Shape[i]);
+                Assert.AreEqual(expectedShape2[i], splits[1].Shape[i]);
+            }
+            
+            float[] splitData1 = {1, 2, 3, 5, 6, 7};
+            float[] splitData2 = {4, 8};
+
+            var expectedTensor1 = ctrl.intTensorFactory.Create(_data: splitData1, _shape: expectedShape1);
+            var expectedTensor2 =  ctrl.intTensorFactory.Create(_data: splitData2, _shape: expectedShape2);
+
+            for(int i = 0; i < expectedShape1[0]; i++){
+                for(int j = 0; j < expectedShape1[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor1[i, j], splits[0][i, j]);
+                }
+            }
+
+            for(int i = 0; i < expectedShape2[0]; i++){
+                for(int j = 0; j < expectedShape2[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor2[i, j], splits[1][i, j]);
+                }
+            }
+        }
+
+        [Test]
+        public void SplitSizeLargerThanDim()
+        {
+            float[] data = {1, 2, 3, 4};
+            int[] shape = {1, 4};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+            
+            var splits = tensor.Split(3);
+
+            Assert.AreEqual(1, splits.Length);
+            Assert.AreEqual(2, splits[0].Shape.Length);
+
+            for(int i = 0; i < splits[0].Shape.Length; i++)
+            {
+                Assert.AreEqual(shape[i], splits[0].Shape[i]);
+            }
+
+            for(int i = 0; i < shape[0]; i++){
+                for(int j = 0; j < shape[1]; j++)
+                {   
+                    Assert.AreEqual(tensor[i, j], splits[0][i, j]);
+                }
+            }
+        }
+
+        [Test]
+        public void SplitSectionsWithZero()
+        {
+            float[] data = {1, 2, 3, 4, 5, 6};
+            int[] shape = {2, 3};
+
+            var tensor = ctrl.intTensorFactory.Create(_data: data, _shape: shape);
+            
+            int[] sections = {1,0,2};
+            var splits = tensor.Split(sections, 1);
+
+            Assert.AreEqual(3, splits.Length);
+
+            for(int i = 0; i < splits.Length; i++)
+            {
+                Assert.AreEqual(2, splits[i].Shape.Length);
+            }
+
+            int[] expectedShape1 = {2, 1};
+            int[] expectedShape2 = {2, 0};
+            int[] expectedShape3 = {2, 2};
+
+            
+            for(int i = 0; i < splits[0].Shape.Length; i++)
+            {
+                Assert.AreEqual(expectedShape1[i], splits[0].Shape[i]);
+                Assert.AreEqual(expectedShape2[i], splits[1].Shape[i]);
+                Assert.AreEqual(expectedShape3[i], splits[2].Shape[i]);
+            }
+
+            float[] splitData1 = {1, 4};
+            float[] splitData3 = {2, 3, 5, 6};
+
+            var expectedTensor1 = ctrl.intTensorFactory.Create(_data: splitData1, _shape: expectedShape1);
+            var expectedTensor3 =   ctrl.intTensorFactory.Create(_data: splitData3, _shape: expectedShape3);
+
+            for(int i = 0; i < expectedShape1[0]; i++){
+                for(int j = 0; j < expectedShape1[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor1[i, j], splits[0][i, j]);
+                }
+            }
+
+            Assert.AreEqual(0, splits[1].Data.Length);
+
+            for(int i = 0; i < expectedShape3[0]; i++){
+                for(int j = 0; j < expectedShape3[1]; j++)
+                {   
+                    Assert.AreEqual(expectedTensor3[i, j], splits[2][i, j]);
+                }
+            }
+        }
+
         [Test]
         public void Sqrt()
         {

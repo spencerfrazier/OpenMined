@@ -12,11 +12,15 @@ namespace OpenMined.Syft.Tensor
 {
     public partial class IntTensor : BaseTensor<int>
     {
-        private string creation_op;
-        public List<int> children_indices; // children -> counts
-        public List<int> children_counts; // children -> counts
 
         private IntTensorFactory factory;
+
+        public bool Autograd
+        {
+            get { return autograd; }
+
+            set { autograd = value; }
+        }
 
         public IntTensor()
         {
@@ -33,6 +37,8 @@ namespace OpenMined.Syft.Tensor
             ComputeShader _shader = null,
             bool _copyData = true,
             bool _dataOnGpu = false,
+            bool _autograd = false,
+            bool _keepgrads = false,
             string _creation_op = null)
         {
 
@@ -138,9 +144,23 @@ namespace OpenMined.Syft.Tensor
 //            NegateKernel = this.shader.FindKernel("NegateInt");
         }
 
-        public IntTensor Copy()
+        public IntTensor Copy(bool autograd, IntTensor result = null)
         {
-            throw new NotImplementedException();
+            if (autograd != this.Autograd)
+            {
+                result = HookGraph(ref result, "copy_autograd_flip", inline: false);
+            }
+            else
+            {
+                result = HookGraph(ref result, "copy", inline: false);
+            }
+
+            result.autograd = autograd;
+            
+            result.Zero_();
+            result.Add(this, inline: true);
+            
+            return result;
         }
 
  
@@ -195,6 +215,11 @@ namespace OpenMined.Syft.Tensor
                     Debug.LogFormat("add_scalar_");
                     this.Add(int.Parse(msgObj.tensorIndexParams[0]), inline: true);
                     return this.id + "";
+                }
+                case "copy":
+                {
+                    var result = Copy(autograd:this.Autograd);
+                    return result.Id.ToString();
                 }
                 case "eq":
                 {
@@ -347,6 +372,46 @@ namespace OpenMined.Syft.Tensor
                 {
                     Reciprocal(inline: true);
                     return Id.ToString();
+                }
+                case "split_by_size":
+                {
+                    int splitSize = int.Parse(msgObj.tensorIndexParams[0]);
+                    int dim = 0;
+
+                    if (msgObj.tensorIndexParams.Length > 1)
+                    {
+                        dim = int.Parse(msgObj.tensorIndexParams[1]);
+                    }
+                    IntTensor[] splits = Split(splitSize, dim:dim);
+                    string[] splitsString = new string[splits.Length];
+                    for(int i = 0; i < splits.Length; i++){
+                        splitsString[i] = splits[i].Id.ToString();
+                    }
+                    return string.Join(",",splitsString);
+                }
+
+                //TODO: For splitting, though dim has a default value of 0
+                //we are getting it from msgObj.tensorIndexParams 
+                //because otherwise we don't know whether
+                //the last element is a split size
+                //or an axis dimension. But could perhaps use
+                //a delimiter or do this some other way.
+                case "split_by_sections":
+                {
+                    int numSections = msgObj.tensorIndexParams.Length-1;
+                    int[] splitSections = new int[numSections];
+                    int dim = int.Parse(msgObj.tensorIndexParams[numSections]);
+
+                    for (int i = 0; i < numSections; i++)
+                    {
+                        splitSections[i] = int.Parse(msgObj.tensorIndexParams[i]);
+                    }
+                    IntTensor[] splits = Split(splitSections, dim:dim);
+                    string[] splitsString = new string[splits.Length];
+                    for(int i = 0; i < splits.Length; i++){
+                        splitsString[i] = splits[i].Id.ToString();
+                    }
+                    return string.Join(",",splitsString);
                 }
                 case "sqrt":
                 {

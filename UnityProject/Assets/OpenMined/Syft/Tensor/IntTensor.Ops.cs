@@ -8,6 +8,36 @@ namespace OpenMined.Syft.Tensor
 {
     public partial class IntTensor
     {
+        internal IntTensor emptyTensorCopy(bool hook_graph = false, IntTensor result = null)
+        {
+
+            if (hook_graph)
+            {
+                result = HookGraph(ref result, "emptyTensorCopy_Hooked", false);
+                result.Zero_();
+                return result;
+            }
+            else
+            {
+                
+                result = factory.Create(
+                    _shape: this.shape,
+                    _data: data,
+                    _dataBuffer: dataBuffer,
+                    _shapeBuffer: shapeBuffer,
+                    _shader: shader,
+                    _copyData: true,
+                    _dataOnGpu: dataOnGpu,
+                    _autograd: autograd,
+                    _keepgrads: keepgrads,
+                    _creation_op: "emptyTensorCopy");
+            
+                result.Zero_();
+
+                return result;
+            }
+            
+        }
         public IntTensor Add(int value, bool inline = false)
         {
             if (dataOnGpu)
@@ -42,6 +72,334 @@ namespace OpenMined.Syft.Tensor
 
         }
 
+        public IntTensor Contiguous(IntTensor result = null)
+        {
+
+            if (DataOnGpu)
+                throw new NotSupportedException();
+         
+            result = HookGraph(ref result, creation_op:"contiguous", inline:false, resultShape:shape);
+
+            int[] dim_indices = new int[strides.Length];
+            
+            for (int i = 0; i < result.Data.Length; i++)
+            {    
+                result.DataIndex2DimIndices(i, ref dim_indices);
+                result.data[i] = this.data[this.DimIndices2DataIndex(ref dim_indices)];
+            }   
+            
+            return result;
+        }
+
+        public IntTensor Expand(int[] sizes) {
+            if (sizes.Length == Shape.Length) {
+                return ExpandFixedDimensions(sizes);
+            } else if (sizes.Length > Shape.Length) {
+                return expandNewDimensions(sizes);
+            } else {
+                throw new InvalidOperationException(String.Format("Number of sizes provided must be greater than or equal to the number of dimensions in tensor"));
+            }
+        }
+
+        private IntTensor ExpandFixedDimensions(int[] sizes, IntTensor result = null)
+        {
+
+            // TODO: make more complicated version which does not copy data
+            result = HookGraph(ref result, "expand", inline:false, resultShape:shape);
+            result.Add(this, inline: true);
+            
+            for (int i = 0; i < shape.Length; i++) {
+                if (sizes[i] != -1 && sizes[i] != shape[i]) {
+                    if (shape[i] == 1 || strides[i] == 0) {
+                        result.strides[i] = 0;
+                        result.shape[i] = sizes[i];
+                    } else {
+                        throw new InvalidOperationException (String.Format ("Cannot expand dimension {0}, not a singleton ({1})", i, shape[i]));
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private IntTensor expandNewDimensions(int[] sizes) {
+            IntTensor result = factory.Create(_data: data, _shape: shape, _shader: shader, _copyData: false);
+
+            int diffLength = sizes.Length - shape.Length;
+            
+            // sets new strides to zero on initialization
+            int[] newStrides = new int[sizes.Length];
+            int[] newShape = new int[sizes.Length];
+
+            for (int i = 0; i < diffLength; i++) {
+                // sets new shape
+                if (sizes[i] != -1) {
+                    newShape[i] = sizes[i];
+                } else {
+                    throw new InvalidOperationException (String.Format ("Cannot set new dimension {0} to -1", i));
+                }
+            }
+            
+            for (int i = diffLength; i < sizes.Length; i++) {
+                var oldIndex = i - diffLength;
+                
+                // fill in old strides/shape
+                newStrides[i] = strides[oldIndex];
+                newShape[i] = shape[oldIndex];
+                
+                // modify any old strides/shapes
+                if (sizes[i] != -1 && sizes[i] != shape[oldIndex]) {
+                    if (shape[oldIndex] == 1 || strides[oldIndex] == 0) {
+                        newStrides[i] = 0;
+                        newShape[i] = sizes[i];
+                    } else {
+                        throw new InvalidOperationException (String.Format ("Cannot expand dimension {0}, not a singleton ({1})", i, shape[i]));
+                    }
+                }
+            }
+
+            result.shape = newShape;
+            result.strides = newStrides;
+            
+            return result;
+        }
+
+
+        // regular index add expects a single list as a tensor - and you select which dimension that list is
+        // used to index into in a different parameter. In this method, the shape of indices itself is instead used
+        // to index into the tensor - ShapedIndexSelect has a similar relationship to IndexSelect as this method has
+        // to IndexAdd
+        public IntTensor ShapedIndexAdd(IntTensor indices, IntTensor x, bool inline = false, IntTensor result = null)
+        {
+            if(indices.Shape.Length != shape.Length-1)
+                throw new Exception("Indices must have exactly one dimension less than tensor");
+                
+            for (int i = 0; i < shape.Length-1; i++)
+            {
+                if (shape[i] != indices.Shape[i])
+                {
+                    throw new Exception(
+                        "If you index select with -1, indices shape must match tensor shape for all dims except the last");
+                }
+            }
+
+            int[] flat_left = this.Shape;
+            
+            result = HookGraph(ref result, "shaped_index_add_" + indices.Id + "_" + x.id, inline:inline, resultShape:this.Shape, indices:new IntTensor[1]{indices});
+ 
+            /*for (int i = 0; i < result.Size; i++)
+            {
+                result.data[i] = this.Data[i * flat_left[1] + indices.Data[i]];
+            }*/
+            
+            for (int i = 0; i < indices.Size; i++)
+            {
+                result.Data[i * flat_left[1] + indices.Data[i]] += x.Data[i];
+            }
+
+            return result;
+        }
+
+        public IntTensor IndexAdd(IntTensor indices, int dim, IntTensor x, IntTensor result = null, bool inline = false)
+        {
+            if (dim == -1)
+            {
+                return ShapedIndexAdd(indices, x, inline:inline);
+            }
+            
+            if (DataOnGpu)
+            {
+                throw new NotImplementedException();
+            }
+            
+            if (indices.Shape.Length != 1)
+            {
+                throw new NotImplementedException("Indices must be a list");
+            }
+
+            /*if (indices.Shape[dim] != x.Shape[dim])
+            {
+                throw new IndexOutOfRangeException("Indices and Input Sum must have same number of rows");
+            }*/
+
+            int[] original_shape = new int[shape.Length];
+            for (int i = 0; i < shape.Length; i++) original_shape[i] = shape[i];
+            
+            int[] temp_shape = new int[] {1, shape[dim], 1};
+
+            for (int i = 0; i < dim; i++)
+            {
+                temp_shape[0] *= shape[i];
+            }
+    
+            for (int i = dim+1; i < shape.Length; i++)
+            {
+                temp_shape[2] *= shape[i];
+            }
+                
+            var self_3d = this.View(temp_shape,inline:inline);
+            var x_3d = x.View(new int[] {temp_shape[0], indices.Shape[0], temp_shape[2]});
+            
+            // TODO: Hook Autograd should support this
+            result = HookGraph(ref result, "index_add_dim:" + dim + "_" + indices.Id + "_" + x.Id, inline, resultShape:temp_shape);
+
+            if (!inline)
+            {
+                result.Zero_();
+                result.Add(this, inline: true);
+            }
+
+            int[] temp_index = new int[] {0, 0, 0};
+            
+            for (int i = 0; i < self_3d.shape[0]; i++)
+            {
+                temp_index[0] = i;
+
+                for (int j = 0; j < self_3d.shape[2]; j++)
+                {
+                    temp_index[2] = j;
+                
+                    for (var k = 0; k < indices.Shape[0]; k++)
+                    {
+                        temp_index[1] = k;
+                        int x_dataindex = x_3d.DimIndices2DataIndex(ref temp_index);
+                        
+                        temp_index[1] = indices.Data[k];
+                        result.Data[result.DimIndices2DataIndex(ref temp_index)] += x_3d.Data[x_dataindex];
+
+                    }
+                        
+                }
+                    
+            }
+
+            return result.View(original_shape, inline:inline);
+        }
+
+        public IntTensor IndexSelect(List<int> indices, int dim, IntTensor result = null)
+        {
+            IntTensor i = factory.ctrl.intTensorFactory.Create(_shape: new int[] {indices.Count}, _data: indices.ToArray());
+            IntTensor subset = IndexSelect(i, dim, result);
+            factory.ctrl.intTensorFactory.Delete(i.Id);
+            return subset;
+        }
+
+        
+        // this probably isn't the best/right name for this function
+        // but basically the normal indexselect requies you to pass in a list of indices
+        // that is exactly one dimension (a list) and a separate parameter that selects
+        // which dim the list of indices should be applied to. In this one, however, indices
+        // is has to same shape as the tensor itx indexing into except for the last dimension, which
+        // indices must not have as a dimension (that's the one being indexed).
+        public IntTensor ShapedIndexSelect(IntTensor indices, IntTensor result = null)
+        {
+            if(indices.Shape.Length != shape.Length-1)
+                throw new Exception("Indices must have exactly one dimension less than tensor");
+                
+            for (int i = 0; i < shape.Length-1; i++)
+            {
+                if (shape[i] != indices.Shape[i])
+                {
+                    throw new Exception(
+                        "If you index select with -1, indices shape must match tensor shape for all dims except the last");
+                }
+            }
+                
+            int[] flat_left = new int[2];
+            flat_left[1] = shape[shape.Length - 1];
+            flat_left[0] = 1;
+            for (int i = 0; i < shape.Length - 1; i++) flat_left[i] *= shape[i];
+            
+            int[] slice_off_right = new int[shape.Length - 1];
+            for (int i = 0; i < slice_off_right.Length; i++) slice_off_right[i] = shape[i];
+            
+                
+            result = HookGraph(ref result, "shaped_index_select_" + indices.Id, inline:false, resultShape:slice_off_right, indices:new IntTensor[1]{indices});
+
+            
+            for (int i = 0; i < result.Size; i++)
+            {
+                result.data[i] = this.Data[i * flat_left[1] + indices.Data[i]];
+            }
+
+            return result;
+        }
+        
+        
+        public IntTensor IndexSelect(IntTensor indices, int dim, IntTensor result = null)
+        {
+
+            if (dim == -1)
+            {
+                return ShapedIndexSelect(indices);
+            }
+            
+            if (DataOnGpu)
+            {
+                throw new NotImplementedException();
+            }
+
+            if (indices.Shape.Length != 1)
+            {
+                throw new NotImplementedException("Indices must be a list");
+            }
+            
+            int[] temp_shape = new int[] {1, shape[dim], 1};
+
+            for (int i = 0; i < dim; i++)
+            {
+                temp_shape[0] *= shape[i];
+            }
+    
+            for (int i = dim+1; i < shape.Length; i++)
+            {
+                temp_shape[2] *= shape[i];
+            }
+                
+            var self_3d = this.View(temp_shape);
+
+            int[] result_3d_shape = new int[] {temp_shape[0], indices.Shape[0], temp_shape[2]};
+
+            result = HookGraph(ref result, "index_select_" + dim + "_" + indices.Id, inline:false, resultShape:result_3d_shape, indices:new IntTensor[1]{indices});
+            
+            int[] temp_index = new int[] {0, 0, 0};
+        
+            for (int i = 0; i < self_3d.shape[0]; i++)
+            {
+                temp_index[0] = i;
+
+                for (int j = 0; j < self_3d.shape[2]; j++)
+                {
+                    temp_index[2] = j;
+                
+                    for (var k = 0; k < indices.Shape[0]; k++)
+                    {
+                        temp_index[1] = indices.Data[k];
+                        int result_data_index = self_3d.DimIndices2DataIndex(ref temp_index);
+
+                        temp_index[1] = k;
+                        result.Data[result.DimIndices2DataIndex(ref temp_index)] = self_3d.Data[result_data_index];
+                    }       
+                }                    
+            }
+
+            int[] result_dim = new int[shape.Length];
+            for (int i = 0; i < shape.Length; i++)
+            {
+                if (i != dim)
+                {
+                    result_dim[i] = shape[i];
+                }
+                else
+                {
+                    result_dim[i] = indices.Shape[0];
+                }
+            }
+            
+            return result.View(result_dim);
+        }
+        
+
         public IntTensor Reciprocal(bool inline = false)
         {
             IntTensor result = factory.Create(this.shape);
@@ -60,29 +418,114 @@ namespace OpenMined.Syft.Tensor
             return result;
         }
 
-        public FloatTensor Sin(bool inline = false)
+
+        internal IntTensor[] MakeSplits(int[] splitSections, int dim = 0)
         {
-            FloatTensor result = factory.ctrl.floatTensorFactory.Create(shape);
+            int numSplits = splitSections.Length;
+            var splits = new IntTensor[numSplits];
+            int offset = 0;
+
+            //Gather subset of elements corresponding to each split 
+            for(int i = 0; i < numSplits; i++)
+            {
+                int[] splitShape = (int[]) Shape.Clone();
+                int splitSize = splitSections[i];
+                splitShape[dim] = splitSize;
+                splits[i] = this.IndexSelect(new List<int>(Enumerable.Range(offset, splitSize)), dim);
+
+                offset += splitSize;
+            }
+            return splits;
+        }
+        
+        public IntTensor[] Split(int splitSize, int dim = 0)
+        {
+            if (!IsContiguous())
+            {
+                throw new InvalidOperationException ("Tensor must be contiguous, call Contiguous() to convert");
+            }
+
+            int len = shape.Length;
+
+            AssertDim(dim, len);
+
+            int numSplits = (shape[dim] + splitSize - 1)/splitSize;
+            int lastSplitSize = splitSize - (splitSize*numSplits - shape[dim]);
+            var splitSections = new int[numSplits];
+
+            for(int i = 0; i < numSplits; i++){
+                splitSections[i] = (i < (numSplits - 1)) ? splitSize : lastSplitSize;
+            }
+
+            return MakeSplits(splitSections, dim);
+        }
+
+        public IntTensor[] Split(int[] splitSections, int dim = 0)
+        {
+
+            if (!IsContiguous())
+            {
+                throw new InvalidOperationException ("Tensor must be contiguous, call Contiguous() to convert");
+            }
+
+            int len = shape.Length;
+
+            AssertDim(dim, len);
+
+            int numSplits = splitSections.Length;
+            int sumSplitSizes = 0;
+        
+            for (int i = 0; i < numSplits; i++)
+            {
+                sumSplitSizes += splitSections[i];
+            }
+
+            if (sumSplitSizes != shape[dim])
+            {
+                throw new InvalidOperationException 
+                (String.Format("Sum of split sizes {0} != size {1} of dim {2}", 
+                    sumSplitSizes,  shape[dim], dim));
+            }
+
+            return MakeSplits(splitSections, dim);
+        }
+        
+        public IntTensor Sin(bool inline = false)
+        {
+            IntTensor result = factory.ctrl.intTensorFactory.Create(shape);
             if (dataOnGpu)
             {
                 result.Gpu(shader);
                 if (inline) { throw new NotImplementedException(); }
                 else { return SinGPU(result); }
             }
-            result.Data = data.AsParallel().Select(x => (float)Math.Sin((double)x)).ToArray();
+            result.Data = data.AsParallel().Select(x => (int)Math.Sin((int)x)).ToArray();
             return result;
         }
 
-        public FloatTensor Cos(bool inline = false)
+        public IntTensor Sum(int dim = -1, bool keepdim = false)
         {
-            FloatTensor result = factory.ctrl.floatTensorFactory.Create(shape);
+            if (!IsContiguous())
+            {
+                throw new InvalidOperationException("Tensor must be contiguous, call Contiguous() to convert");
+            }
+
+            // TODO: Implement GPU op. with GPU tests.
+
+            return Reduce(dim, keepdim, (acc, val, index, arr) => acc + val, (val, len) => val, creation_op:"sum_"+dim+"_"+keepdim);
+
+        }    
+
+        public IntTensor Cos(bool inline = false)
+        {
+            IntTensor result = factory.ctrl.intTensorFactory.Create(shape);
             if (dataOnGpu)
             {
                 result.Gpu(shader);
                 if (inline) { throw new NotImplementedException(); }
                 else { return CosGPU(result); }
             }
-            result.Data = data.AsParallel().Select(x => (float)Math.Cos((float)x)).ToArray();
+            result.Data = data.AsParallel().Select(x => (int)Math.Cos((int)x)).ToArray();
             return result;
         }
         
@@ -306,6 +749,84 @@ namespace OpenMined.Syft.Tensor
             return result;
         }
 
+        public IntTensor createZerosTensorLike() {
+            IntTensor new_tensor = this.emptyTensorCopy ();
+            new_tensor.Zero_ ();
+            return new_tensor;
+        }
+
+        public IntTensor createOnesTensorLike() {
+            IntTensor new_tensor = this.emptyTensorCopy();
+            new_tensor.Zero_ ();
+            new_tensor.Add ((int)1,true);
+            return new_tensor;
+        }
+
+        public IntTensor Div(IntTensor x, bool inline = false, IntTensor result = null)
+        {
+            if (!IsContiguous() || !x.IsContiguous()) {
+                throw new InvalidOperationException ("Tensor must be contiguous, call Contiguous() to convert");
+            }
+
+            // Check if both tensors are compatible for sub - fallback to scalar version if either tensor's size == 1
+            if (SameSizeDimensionsShapeAndLocation(ref x))
+            {
+                if (x.Size == 1)
+                {
+                    return this.Div(x.Expand(shape).Contiguous(), inline);
+                }
+                else if (this.Size == 1)
+                {
+                    if (inline)
+                    {
+                        throw new InvalidOperationException("Tensor sizes don't match");
+                    }
+
+                    return x.Div(this.Expand(x.shape).Contiguous()).Pow(-1);
+                }
+                else
+                {
+                    throw new InvalidOperationException();
+                }
+            }
+            result = HookGraph(ref result, tensor_inputs:new IntTensor[]{x}, creation_op:"div_elem", inline:inline);
+            
+            if (dataOnGpu & x.dataOnGpu)
+            {
+                result.Gpu(shader);
+                if (inline)
+                {
+                    if (autograd)
+                        throw new InvalidOperationException(
+                            "Cannot call inline functions if you intend to run backprop.");
+                    DivElemGPU_(x);
+                    return this;
+                }
+                result = DivElemGPU(x, result);
+            }
+            else
+            {
+                result.Data = data.AsParallel().Zip(x.Data.AsParallel(), (a, b) => a / b).ToArray();
+            }
+
+            return result;
+        }
+
+        public IntTensor Div(int value, bool inline = false, IntTensor result = null)
+        {
+            result = HookGraph (ref result, scalar_input:value, creation_op:"div_scalar", inline:inline);
+            
+            if (dataOnGpu)
+            {
+                result.Gpu(shader);
+                if (!inline) return DivScalarGPU(value, result);
+                DivScalarGPU_(value);
+                return this;
+            }
+            result.Data = data.AsParallel().Select(x => x / value).ToArray();
+            return result;
+        }
+
         public bool Equal(IntTensor x, bool inline = false)
         {
             if (dataOnGpu)
@@ -315,6 +836,98 @@ namespace OpenMined.Syft.Tensor
 
             return this.Shape.SequenceEqual(x.Shape) && data.AsParallel().SequenceEqual(x.Data.AsParallel());
         }
+
+
+        public IntTensor MM(IntTensor x, IntTensor result = null)
+        {
+            if (!IsContiguous() || !x.IsContiguous()) {
+                throw new InvalidOperationException ("All tensors must be contiguous, call Contiguous() to convert");
+            }
+
+            if (this.shape.Length != 2 || x.shape.Length != 2)
+            {
+                throw new InvalidOperationException(
+                    "Cannot do MM on tensors that aren't 2 dimentional. Try calling view() to reshape");
+            }
+            
+            result = HookGraph( result:ref result, 
+                                tensor_inputs:new IntTensor[]{x},  
+                                creation_op:"mm", 
+                                inline:false, 
+                                resultShape:new int[]{shape[0],x.shape[1]});
+            
+            result.AddMatrixMultiply(this, x);
+
+            return result;
+        }
+
+        public IntTensor Mul(IntTensor x, bool inline = false, IntTensor result = null)
+        {
+            if (!IsContiguous() || !x.IsContiguous()) {
+                throw new InvalidOperationException ("All tensors must be contiguous, call Contiguous() to convert");
+            }
+
+            // Check if both tensors are compatible for sub - fallback to scalar version if either tensor's size == 1
+            if (SameSizeDimensionsShapeAndLocation(ref x))
+            {
+                if (x.Size == 1)
+                {
+                    return this.Mul(x.Expand(shape).Contiguous(), inline);
+                }
+                else if (this.Size == 1)
+                {
+                    if (inline)
+                    {
+                        throw new InvalidOperationException("Tensor sizes don't match");
+                    }
+
+                    return x.Mul(this.Expand(x.shape).Contiguous());
+                }
+                else
+                {
+                    throw new InvalidOperationException();
+                }
+            }
+
+            result = HookGraph(ref result, tensor_inputs: new IntTensor[]{x}, creation_op:"mul_elem", inline:inline);
+
+            if (dataOnGpu && x.dataOnGpu)
+            {
+                if (inline)
+                {
+                    if (autograd)
+                    {
+                        throw new InvalidOperationException(
+                            "Cannot call inline functions if you intend to run backprop.");
+                    }
+                    MulElemGPU_(x);
+                    return this;
+                }
+                result = MulElemGPU(x, result);
+            }
+            else
+            {
+                result.Data = data.AsParallel().Zip(x.Data.AsParallel(), (a, b) => a * b).ToArray();
+            }
+
+            return result;
+        }
+
+        public IntTensor Mul(int value, bool inline = false, IntTensor result = null)
+        {
+            result = HookGraph (ref result,  creation_op: "mul_scalar", inline:inline, scalar_input:value);
+
+            if (dataOnGpu)
+            {
+                if (!inline) return MulScalarGPU(value, result);
+                MulScalarGPU_(value);
+                return this;
+            }
+
+            result.Data = data.AsParallel().Select(x => x * value).ToArray();
+            return result;
+        }
+
 
         public IntTensor Sub(IntTensor x, bool inline = false)
         {
